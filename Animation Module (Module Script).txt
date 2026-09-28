@@ -1,0 +1,333 @@
+
+
+local AnimatorModule = {}
+
+function AnimatorModule.new()
+	local Animator = {
+		AvailableOptions = {
+			Duration = {
+				Type = {"Time"},
+			},
+			Easing = {
+				Direction = {"InOut", "In", "Out"},
+				Style = {"Linear", "Back", "Quad", "Sine", "Cubic", "Quart", "Quint", "Bounce", "Elastic", "Circular", "Exponential"}
+			}
+		}
+
+	}
+
+
+
+
+	-- Create the Variables
+	Animator["Load"] = function(context, Settings, CheckPoints)
+		local set
+		if Settings then
+			set = table.clone(Settings)
+		end
+		if set then
+			set = table.clone(set)
+		end
+		Animator["Settings"] = set or {
+			InitialDelay = 1, -- Delay before running the first animation, used to avoid incorrect timming when loading is slow
+			Duration = {
+				Type = {"Time"}, -- Available: "Time" (sec)
+				Value = {1},
+				Interval = {0} 
+			},
+			Easing = {
+				Direction = {"InOut"}, -- Avaialble: "InOut", "In", "Out"
+				Style = {"Linear"} -- Available: "Linear", "Back", "Quad", "Sine", "Cubic", "Quart", "Quint", "Bounce", "Elastic", "Circular", "Exponential"
+
+			},
+			Count = -1, -- Use -1 for infinite repeatitions 
+
+			DestroyCheckPoints = true -- Available: true, false (if true, checkpoints will be destroyed to reduce lag, animations will still work)
+
+		}
+
+		Animator["TweenService"] = game:GetService("TweenService")
+		Animator["CheckPoints"] = CheckPoints
+		Animator["CheckPointsN"] = #Animator.CheckPoints:GetChildren()
+
+		Animator["Info"] = {}
+		Animator["Goal"] = {}
+		Animator["MaterialGoals"] = {}
+		Animator["Target"] = context
+
+		if Animator.IsPivotBased(context) then Animator.ManagePivot(context) end
+
+		if Animator.IsModel(context) then Animator.ManageModel(context) end
+		Animator.CreateInfo(context)
+
+		Animator.LoadInfo()
+	end
+
+
+
+
+	Animator["IsPivotBased"] = function(context)
+		if context.PivotOffset ~= CFrame.new(0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1) then
+			return true
+		end
+	end
+
+	Animator["IsModel"] = function(context)
+		if context.Parent:IsA("Model") and context.Parent ~= workspace then
+			return true
+		end
+	end
+
+
+
+
+	-- Creates Infos
+	Animator["CreateInfo"] = function(context)
+		for i = 1, Animator.CheckPointsN do
+			Animator.Info["Info" .. i] = {
+				Duration = {},
+				Easing = {}
+			}
+
+		end
+	end
+
+
+
+
+
+
+	-- LoadInfo
+
+	Animator["LoadInfo"] = function(context)
+		local lastindex = {
+			Duration = {
+				Value = 0,
+				Type = 0,
+				Interval = 0
+			},
+			Easing = {
+				Style = 0,
+				Direction = 0
+			}
+		} -- last safe index
+
+
+		for i = 1, Animator.CheckPointsN do
+
+			-- FIX MISSING VALUES FOR DURATIONVALUE, DURATIONTYPE, DURATIONINTERVAL, EASINGDIRECTION, EASINGSTYLE
+			for key, value in pairs(lastindex) do
+				for subkey, result in (value) do
+					if Animator.Settings[key][subkey][i] then
+						lastindex[key][subkey] = i
+					else
+						Animator.Settings[key][subkey][i] = Animator.Settings[key][subkey][result]
+					end
+
+					-- SETS THE VALUES
+					if subkey == "Type" or subkey == "Direction" or subkey == "Style" then
+						if table.find(Animator.AvailableOptions[key][subkey], Animator.Settings[key][subkey][i]) then
+							Animator.Info["Info" .. i][key][subkey] = Animator.Settings[key][subkey][i]
+						else
+							warn(context:GetFullName() .. " >> Settings: " .. key .. " " .. subkey .. " #" .. i .. " is Not a valid " .. subkey .. ": '" .. Settings[key][subkey][i] .. "'")
+							Animator.Info["Info" .. i][key][subkey] = Animator.Settings[key][subkey][i]
+						end
+					else
+						if Animator.Settings[key][subkey][i] then
+							Animator.Info["Info" .. i][key][subkey] = Animator.Settings[key][subkey][i]
+						else
+							Animator.Info["Info" .. i][key][subkey] = 0
+						end
+					end
+
+				end
+			end
+		end
+	end
+
+
+	-- Model Manager
+	Animator["ManageModel"] = function(context)
+		for key, part in pairs(context.Parent:GetDescendants()) do
+			if part:IsA("BasePart") and part.Parent ~= Animator.CheckPoints and part ~= context then
+				local c0 = context.CFrame:ToObjectSpace(part.CFrame)
+
+
+				part.Anchored = false
+				local weld = Instance.new("Weld")
+				weld.Parent = context
+				weld.Part0 = context
+				weld.Part1 = part
+				weld.C0= c0
+				part.Anchored = false
+
+
+			end
+		end
+	end
+
+
+
+	-- Pivot Manager
+	Animator["ManagePivot"] = function(context)
+		-- creates main pivot
+		local mainpivot = Instance.new("Part")
+		mainpivot.Anchored = true
+		mainpivot.CanCollide = false
+		mainpivot.CanQuery = false
+		mainpivot.CanTouch = false
+		mainpivot.Parent = context
+		mainpivot.CFrame = context.CFrame * context.PivotOffset
+		mainpivot.Transparency = 1
+		mainpivot.Name = "Pivot"
+
+		local pivotweld = Instance.new("Weld")
+		pivotweld.Parent = mainpivot
+		pivotweld.Part0 = mainpivot
+		pivotweld.Part1 = mainpivot.Parent
+		pivotweld.C1 = context.PivotOffset
+
+		mainpivot.Parent.Anchored = false
+
+	end
+
+
+
+
+
+
+	-- PlayAnimation function
+
+	Animator["PlayAnimation"] = function(context)
+		task.spawn(function()
+			
+			if Animator.Settings.DestroyCheckPoints then
+				if context:FindFirstChild("CheckPoints") then
+					Animator.CheckPoints:Destroy()
+					
+				end
+			end
+			
+
+			task.wait(Animator.Settings.InitialDelay or 0)
+			local n = 0
+			local count = Animator.Settings.Count
+			local numberofgoals = 0
+
+			for i, k in Animator.Goal do
+				numberofgoals = numberofgoals+1	
+			end
+			local PivotGoal = {}
+			if Animator.Target:FindFirstChild("Pivot") then
+				for i = 1, numberofgoals do
+					PivotGoal["PivotGoal"..i] = {
+						CFrame = Animator.Goal["Goal" .. i].CFrame or Animator.Target:FindFirstChild("Pivot").CFrame or nil
+					}
+				end
+			end
+				
+				
+			while (n < count) or Animator.Settings.Count < 0 do
+				n += 1
+				
+				local cframebackup
+				for i = 1, numberofgoals do
+					local t = Animator.Info["Info" .. i].Duration.Value
+					local cframebackup
+					if Animator.IsPivotBased(context) then
+						
+
+						local Tween = Animator.TweenService:Create(
+							Animator.Target:FindFirstChild("Pivot"),
+							TweenInfo.new(
+								Animator.Info["Info" .. i].Duration.Value,
+								Enum.EasingStyle[Animator.Info["Info" .. i].Easing.Style],
+								Enum.EasingDirection[Animator.Info["Info" .. i].Easing.Direction]
+							),
+							PivotGoal["PivotGoal" .. i]
+						)
+						
+						cframebackup = Animator.Goal["Goal"..i].CFrame
+						Animator.Goal["Goal"..i].CFrame = nil
+						Tween:Play()
+					end
+					local Tween = Animator.TweenService:Create(
+						Animator.Target,
+						TweenInfo.new(
+							Animator.Info["Info" .. i].Duration.Value,
+							Enum.EasingStyle[Animator.Info["Info" .. i].Easing.Style],
+							Enum.EasingDirection[Animator.Info["Info" .. i].Easing.Direction]
+						),
+						Animator.Goal["Goal" .. i]
+					)
+
+					Tween:Play()
+					if cframebackup then Animator.Goal["Goal"..i]["CFrame"] = cframebackup end
+					cframebackup = nil
+					
+					
+					task.wait(t/2)
+					Animator.Target.Material = Animator.MaterialGoals[i] or Animator.Target.Material
+					task.wait(t/2)
+					task.wait(Animator.Info["Info"..i].Duration.Interval)
+
+				end
+			end
+		end)
+	end
+
+
+
+
+
+	-- Create Goals Function
+
+
+	Animator["CreateGoals"] = function(context)
+
+
+
+
+		for i = 1, Animator.CheckPointsN do
+
+
+			Animator.Goal["Goal" .. i] = {
+				CFrame = Animator.CheckPoints[i].CFrame * Animator.CheckPoints[i].PivotOffset,
+				Size = Animator.CheckPoints[i].Size,
+				Transparency = Animator.CheckPoints[i]:GetAttribute("Transparency") or 0,
+				Color = Animator.CheckPoints[i].Color,
+			}
+			Animator.MaterialGoals[i] = Animator.CheckPoints[i].Material
+
+		end
+
+		if Animator.Settings.DestroyCheckPoints then Animator.CheckPoints:Destroy() end
+	end
+
+
+	Animator["Run"] = function(context, Settings, checkpointsfolder)
+		Animator.Load(context, Settings, checkpointsfolder)
+		Animator.CreateGoals(context, Settings, checkpointsfolder)
+		Animator.PlayAnimation(context, Settings, checkpointsfolder)
+
+
+	end
+
+
+
+
+
+
+
+
+
+
+
+
+
+	return Animator
+end
+
+return AnimatorModule
+
+

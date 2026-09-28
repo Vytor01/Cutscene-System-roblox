@@ -1,0 +1,593 @@
+
+local SceneInfo = require(script:WaitForChild("SceneInfo"))
+local Run = script:WaitForChild("Run")
+
+
+Run.OnServerEvent:Connect(function(Player)
+
+
+	print("running as "..Player.Name)
+	local Scene = SceneInfo.Scene
+	if type(Scene) ~= "number" then
+		error("Scene must be a number")
+	end
+	local SubScenes = SceneInfo.SubScenes
+
+	for i, SubScene in pairs(SubScenes) do
+		local Proceed = false
+		local CanBePlayed = true
+		if SubScene.MeetStatement then
+			if not SubScene.MeetStatement(script) then
+				CanBePlayed = false
+			end
+		end
+
+		if CanBePlayed then
+
+			if SubScene.RunFunction then
+				SubScene.RunFunction(script, Player)
+			end
+
+
+			local RunEndEvents
+			if string.lower(SubScene.Type) == "choice" or string.lower(SubScene.Type) == "speech" then
+				-- CAMERA
+				if SubScene.CameraName then
+					if type(SubScene.CameraName) == "string" then
+						game.ReplicatedStorage.CameraEvents.SetCameraType:FireClient(Player, Enum.CameraType.Scriptable)
+						if script.Parent.Cameras[SubScene.CameraName] then
+							game.ReplicatedStorage.CameraEvents.SetCameraCFrame:FireClient(Player, script.Parent.Cameras[SubScene.CameraName].CFrame)
+
+						else
+							error("Couldn't find camera "..SubScene.CameraName .. " at "..script.Parent.Cameras)
+						end
+					else
+						error("SubScene "..i.. " Camera Number must be a string value")
+					end
+				end
+
+				-- Run Begin Events
+				if SubScene.BeginEvents then
+
+					for _, event in pairs(SubScene.BeginEvents) do
+						if event.EventToFire then
+							if type(event.ToWait) ~= "number" then
+								error("Time to wait before a Begin Event must be a valid number at SubScene "..i)
+							end
+							task.spawn(function()
+								task.wait(event.ToWait)
+								if string.lower(event.Type) == "remote" then
+									event.EventToFire:FireServer(Player, unpack(event.SendArgs))
+								elseif string.lower(event.Type) == "bindable" then
+									event.EventToFire:Fire(unpack(event.SendArgs))
+								else
+									error(event.Type .. " is not a valid event type (bindable / remote)")
+								end
+							end)
+						end
+					end
+				end
+
+				RunEndEvents = function()
+					if SubScene.EndEvents then
+						for _, event in pairs(SubScene.EndEvents) do
+							if event.EventToFire then
+								if type(event.ToWait) ~= "number" then
+									error("Time to wait before a Begin Event must be a valid number at SubScene "..i)
+								end
+								task.spawn(function()
+									task.wait(event.ToWait)
+									if string.lower(event.Type) == "remote" then
+										event.EventToFire:FireServer(Player, unpack(event.SendArgs))
+									elseif string.lower(event.Type) == "bindable" then
+										event.EventToFire:Fire(unpack(event.SendArgs))
+									else
+										error(event.Type .. " is not a valid event type (bindable / remote)")
+									end
+								end)
+							end
+						end
+
+					end
+				end
+			end
+
+			if string.lower(SubScene.Type) == "cameraanimation" then
+				-- animate camera using tween
+
+				if SubScene.CameraName then
+					if type(SubScene.CameraName) == "string" then
+						game.ReplicatedStorage.CameraEvents.SetCameraType:FireClient(Player, Enum.CameraType.Scriptable)
+						if script.Parent.Cameras[SubScene.CameraName] then
+							local Style = SubScene.Style
+							if not Style then Style = "Linear" end
+							local Duration = SubScene.Duration
+							if not Duration then Duration = 0 end
+							local Direction = SubScene.Direction
+							if not Direction then Direction = "InOut" end
+							game.ReplicatedStorage.CameraEvents.TweenCameraCFrame:FireClient(Player, Duration, Style, Direction, script.Parent.Cameras[SubScene.CameraName].CFrame)
+
+						else
+							error("Couldn't find camera "..SubScene.CameraName .. " at "..script.Parent.Cameras)
+						end
+					else
+						error("SubScene "..i.. " Camera Name must be a string value")
+					end
+				end
+
+				task.spawn(function()
+					task.wait(SubScene.ToWait)
+					Proceed = true
+				end)
+				while not Proceed do task.wait() end
+			elseif string.lower(SubScene.Type) == "humanoidanimation" then
+				-- animate humanoid
+				if not SubScene.NPC_Name then
+					error("A Name must be given to the NPC field at SubScene "..i)
+				end
+				if not script.Parent.NPCs:FindFirstChild(tostring(SubScene.NPC_Name)) then
+					error("NPC "..SubScene.NPC_Name.." is not at folder "..script.Parent.NPCS .. " for SubScene "..i)
+				end
+				local Character = script.Parent.NPCs[tostring(SubScene.NPC_Name)]
+				if not Character:FindFirstChild("Humanoid") then
+					error("NPC "..SubScene.NPC_Name .." doesn't have a humanoid for SubScene "..i)
+				end
+				local Humanoid = Character.Humanoid
+				local Animation = Instance.new('Animation')
+				Animation.AnimationId = SubScene.AnimationID
+				local AnimationTrack = Humanoid.Animator:LoadAnimation(Animation)
+				AnimationTrack:Play()
+
+				local Duration = SubScene.Duration
+				if not Duration then Duration = 0 end
+				if type(Duration) ~= "number" then
+					error("Duration must be a valid number at SubScene "..i)
+				else
+					if Duration >= 0 then
+						task.spawn(function()
+							task.wait(Duration)
+							AnimationTrack:Stop()
+						end)
+					end
+				end
+
+				task.spawn(function()
+					task.wait(SubScene.ToWait)
+					Proceed = true
+				end)
+				while not Proceed do task.wait() end
+
+			elseif string.lower(SubScene.Type) == "humanoidmove" then
+
+				-- move humanoid
+				if not SubScene.NPC_Name then
+					error("A Name must be given to the NPC field at SubScene "..i)
+				end
+				if not SubScene.DestinyPart_Name then
+					error("A Name must be given to the destiny part field at SubScene "..i)
+				end
+				if not script.Parent.NPCs:FindFirstChild(tostring(SubScene.NPC_Name)) then
+					error("NPC "..SubScene.NPC_Name.." is not at folder "..script.Parent.NPCS .. " for SubScene "..i)
+				end
+				if not script.Parent.NPCsMove:FindFirstChild(tostring(SubScene.DestinyPart_Name)) then
+					error("Destiny part ".. SubScene.DestinyPart_Name .." must be at folder "..script.Parent.NPCsMove .. " for SubScene "..i)
+				end
+				local Character = script.Parent.NPCs[tostring(SubScene.NPC_Name)]
+				local Destiny = script.Parent.NPCsMove:FindFirstChild(tostring(SubScene.DestinyPart_Name)) -- destiny is a part
+				local end_signal = nil
+				if SubScene.ToWait < 0 then
+					end_signal = Instance.new("BindableEvent")
+				end
+				Character.NPC.GoToPart:Fire(Destiny, end_signal)
+
+				if SubScene.ToWait >= 0 then
+					task.spawn(function()
+						task.wait(SubScene.ToWait)
+						Proceed = true
+					end)
+				else
+					end_signal.Event:Connect(function()
+						Proceed = true
+					end)
+				end
+
+				while not Proceed do task.wait() end
+
+			elseif string.lower(SubScene.Type) == "animation" then
+				local Settings = SubScene.Settings
+				local context = SubScene.Object
+				local checkpoints = SubScene.CheckPointsFolder
+				local animatormodule = require(game.ReplicatedStorage:WaitForChild("AnimationModule"))
+				local animator = animatormodule.new(context, Settings, checkpoints)
+				animator.Run(context, Settings, checkpoints)
+
+				local ToWait = SubScene.ToWait
+				if not ToWait then ToWait = 0 end
+				if type(ToWait) ~= "number" then
+					error("Waiting time must be a number at SubScene "..i)
+				else
+					if ToWait < 0 then
+						error("Waiting time must be greater or equal 0 at SubScene "..i)
+					else
+						task.spawn(function()
+							task.wait(ToWait)
+							Proceed = true
+						end)
+					end
+				end
+
+				while not Proceed do task.wait() end
+			elseif string.lower(SubScene.Type) == "runfunction" then
+				local ToWait = SubScene.ToWait
+				if not ToWait then ToWait = 0 end
+				if type(ToWait) ~= "number" then
+					error("Waiting time must be a number at SubScene "..i)
+				else
+					if ToWait < 0 then
+						error("Waiting time must be greater or equal 0 at SubScene "..i)
+					else
+						task.spawn(function()
+							task.wait(ToWait)
+							Proceed = true
+						end)
+					end
+				end
+
+				while not Proceed do task.wait() end
+			elseif string.lower(SubScene.Type) == "resetcamera" then
+				local ToWait = SubScene.ToWait
+				if not ToWait then ToWait = 0 end
+				if type(ToWait) ~= "number" then
+					error("Waiting time must be a number at SubScene "..i)
+				else
+					if ToWait < 0 then
+						error("Waiting time must be greater or equal 0 at SubScene "..i)
+					else
+						task.spawn(function()
+							task.wait(ToWait)
+							Proceed = true
+						end)
+					end
+				end
+
+				game.ReplicatedStorage.CameraEvents.SetCameraType:FireClient(Player, Enum.CameraType.Custom)
+
+				while not Proceed do task.wait() end
+			elseif string.lower(SubScene.Type) == "choice" then
+				-- Works out choice
+
+				-- OPEN CHOICE BOX
+
+				local Choice_Box = game.StarterGui.Choice_Model:Clone()
+				Choice_Box.Parent = Player.PlayerGui
+				Choice_Box.Enabled = true
+
+				-- TIME TO WAIT
+
+				local MaxToWait = SubScene.MaxTimeToWait
+				if not MaxToWait then MaxToWait = 0 end
+				if type(MaxToWait) ~= "number" then
+					error("Max amount to wait must be a valid number at choice SubScene "..i)
+				end
+
+				-- CONFIGURE BOX
+
+				-- choice text
+
+				local text = SubScene.Text
+				if SubScene.UseCustomText then
+					text = SubScene.UseCustomText(Player)
+				end
+
+				if SubScene.TextSettings then
+					if SubScene.TextSettings.Size then
+						Choice_Box.Text.TextSize = SubScene.TextSettings.Size	
+
+					end
+					if SubScene.TextSettings.Font then
+						Choice_Box.Text.Font = SubScene.TextSettings.Font
+
+					end
+					if SubScene.TextSettings.Color then
+						Choice_Box.Text.TextColor = SubScene.TextSettings.Color
+
+					end
+
+				end
+
+				Choice_Box.Text.Text = text
+
+				for j, option in pairs(SubScene.Options) do
+					if option.OptionTextSettings then
+						if option.OptionTextSettings.Size then
+							Choice_Box["Option"..j].TextSize = option.OptionTextSettings.Size
+
+						end
+						if option.OptionTextSettings.Font then
+							Choice_Box["Option"..j].Font = option.OptionTextSettings.Font
+
+						end
+						if option.OptionTextSettings.Color then
+							Choice_Box["Option"..j].TextColor = option.OptionTextSettings.Color
+
+						end
+
+					end
+
+					Choice_Box["Option"..j].Text = option.OptionText
+					Choice_Box["Option"..j].Interactable = true
+					Choice_Box["Option"..j].TextTransparency = 0
+				end
+
+				local ChooseOption = function(option)
+					RunEndEvents()
+
+					-- save choice if it has to be saved
+					if SubScene.Options[option].SaveInfo.Save then
+						local SaveType = SubScene.Options[option].SaveInfo.SaveType
+						if SaveType == "int" then
+							local save_instance = Instance.new("IntValue")
+							local value = SubScene.Options[option].SaveInfo.SaveValue
+							if type(value) ~= "number" or value ~= math.round(value) then
+								error("Value to save is not an integer, it is "..type(value).. " at SubScene SubScene "..i .." option "..option)
+							end
+							save_instance.Value = value
+							save_instance.Name = SubScene.Options[option].SaveInfo.SaveAs
+							save_instance.Parent = script.Parent.Parent.Parent.Choices["Scene"..Scene]
+						elseif SaveType == "number" then
+							local save_instance = Instance.new("NumberValue")
+							local value = SubScene.Options[option].SaveInfo.SaveValue
+							if type(value) ~= "number" then
+								error("Value to save is not a number, it is "..type(value).. " at SubScene SubScene "..i .." option "..option)
+							end
+							save_instance.Value = value
+							save_instance.Name = SubScene.Options[option].SaveInfo.SaveAs
+							save_instance.Parent = script.Parent.Parent.Parent.Choices["Scene"..Scene]
+						elseif SaveType == "string" then
+							local save_instance = Instance.new("StringValue")
+							local value = SubScene.Options[option].SaveInfo.SaveValue
+							if type(value) ~= "string" then
+								error("Value to save is not a string, it is "..type(value).. " at SubScene SubScene "..i .." option "..option)
+							end
+							save_instance.Value = value
+							save_instance.Name = SubScene.Options[option].SaveInfo.SaveAs
+							save_instance.Parent = script.Parent.Parent.Parent.Choices["Scene"..Scene]
+						elseif SaveType == "bool" then
+							local save_instance = Instance.new("BoolValue")
+							local value = SubScene.Options[option].SaveInfo.SaveValue
+							if type(value) ~= "boolean" then
+								error("Value to save is not a boolean, it is "..type(value).. " at SubScene SubScene "..i .." option "..option)
+							end
+							save_instance.Value = value
+							save_instance.Name = SubScene.Options[option].SaveInfo.SaveAs
+							save_instance.Parent = script.Parent.Parent.Parent.Choices["Scene"..Scene]
+						end
+					end
+
+					if SubScene.Options[option].Events then
+						for _, event in pairs(SubScene.Options[option].Events) do
+							if event.EventToFire then
+								if type(event.ToWait) ~= "number" then
+									error("Time to wait before a Begin Event must be a valid number at SubScene "..i)
+								end
+								task.spawn(function()
+									task.wait(event.ToWait)
+									if string.lower(event.Type) == "remote" then
+										event.EventToFire:FireServer(Player, unpack(event.SendArgs))
+									elseif string.lower(event.Type) == "bindable" then
+										event.EventToFire:Fire(unpack(event.SendArgs))
+									else
+										error(event.Type .. " is not a valid event type (bindable / remote)")
+									end
+								end)
+							end
+						end
+
+					end
+					Choice_Box:Destroy()
+					Proceed = true
+				end
+
+
+				-- configure buttons
+
+				for j, option in pairs(SubScene.Options) do
+					Choice_Box["Option"..j].MouseButton1Click:Connect(function()
+						ChooseOption(j)
+					end)
+				end
+
+				-- configure time
+
+				if type(SubScene.MaxTimeToWait) == "number" then
+					if SubScene.MaxTimeToWait < 0 then
+						error("Maximum time to wait must be greater or equal 0 at SubScene "..i)
+					elseif SubScene.MaxTimeToWait > 0 then
+						task.spawn(function()
+							local start_time = time()
+							while true and not Proceed do
+								local elapsed = time() - start_time
+								local alpha = math.clamp(elapsed / SubScene.MaxTimeToWait, 0, 1)
+								local inverse_alpha = 1 - alpha
+								local NumberOfDashes = math.floor(120 * inverse_alpha)
+								local text = ""
+								for i = 1, NumberOfDashes do
+									text = text .. "-"
+								end
+								Choice_Box.TimeLeft.Text = text
+								if elapsed <= SubScene.MaxTimeToWait then
+									task.wait()
+								else
+									ChooseOption(1)
+									break
+								end
+							end
+						end)
+					end
+				else
+					error("Maximum time to wait must be a valid number at SubScene "..i)
+				end
+
+				while not Proceed do task.wait() end
+
+
+			elseif string.lower(SubScene.Type) == "speech" then
+				-- Works out Dialogue
+
+
+
+				-- OPEN SubScene BOX
+
+				local Dialogue_Box = game.StarterGui.Dialogue_Model:Clone()
+				Dialogue_Box.Parent = Player.PlayerGui
+				Dialogue_Box.Enabled = true
+
+				-- TIME TO WAIT
+
+				local MaxToWait = SubScene.MaxTimeToWait
+				if not MaxToWait then MaxToWait = 0 end
+				if type(MaxToWait) == "number" then
+					if MaxToWait < 0 then
+						error("Maximum time to wait must be greater or equal 0 at SubScene "..i)
+					end
+				else
+					error("Maximum time to wait must be a valid number at SubScene "..i)
+				end
+
+				local ToWait = SubScene.MinTimeToWait
+				if not ToWait then ToWait = 0 end
+				if type(ToWait) ~= "number" then
+					error("Amount to wait must be a valid number at SubScene "..i)
+				end
+				local ToWaitCharacter
+				if not SubScene.CharacterSpeed then
+					SubScene["CharacterSpeed"] = 0
+				end
+				if SubScene.CharacterSpeed == 0 then
+					ToWaitCharacter = 0
+				else
+					if type(SubScene.CharacterSpeed) ~= "number" then
+						error("Character Speed must be a valid number at SubScene "..i)
+					end
+					ToWaitCharacter = 1/SubScene.CharacterSpeed
+				end
+				--print(ToWaitCharacter)
+
+
+
+				-- Setup End Events
+
+				Dialogue_Box.Speech.Skip.MouseButton1Click:Connect(RunEndEvents)
+
+				-- CONFIGURE BOX
+
+				-- Speaker
+				local speaker
+				speaker = SubScene.Speaker
+				if SubScene.UsePlayerName then
+					speaker = Player.Name
+				end
+				if SubScene.UseCustomSpeaker then
+					speaker = SubScene.UseCustomSpeaker(Player)
+				end
+				Dialogue_Box.Speech.Speaker.Text = speaker
+
+				if SubScene.SpeakerSettings then
+					if SubScene.SpeakerSettings.Color then
+						Dialogue_Box.Speech.Speaker.TextColor = SubScene.SpeakerSettings.Color
+					end
+					if SubScene.SpeakerSettings.Size then
+						Dialogue_Box.Speech.Speaker.TextSize = SubScene.SpeakerSettings.Size
+
+					end
+					if SubScene.SpeakerSettings.Font then
+
+						Dialogue_Box.Speech.Speaker.Font = SubScene.SpeakerSettings.Font
+					end
+
+				end
+
+				-- writes
+				local speech
+				speech = SubScene.Speech
+				if SubScene.UseCustomSpeech then
+					speech = SubScene.UseCustomSpeech(Player)
+				end
+
+				if SubScene.SpeechSettings then
+
+					if SubScene.SpeechSettings.Color then
+						Dialogue_Box.Speech.TextColor = SubScene.SpeechSettings.Color
+
+					end
+					if SubScene.SpeechSettings.Size then
+						Dialogue_Box.Speech.TextSize = SubScene.SpeechSettings.Size
+
+					end
+					if SubScene.SpeechSettings.Font then
+						Dialogue_Box.Speech.Font = SubScene.SpeechSettings.Font
+
+					end
+				end
+
+				task.spawn(function()
+					if ToWaitCharacter > 0 then
+						for t = 1, #speech do
+							if Dialogue_Box and Dialogue_Box:FindFirstChild("Speech") then
+								Dialogue_Box.Speech.Text = string.sub(speech, 1, t)
+								task.wait(ToWaitCharacter)
+							end
+						end
+					else
+						if Dialogue_Box and Dialogue_Box:FindFirstChild("Speech") then
+							Dialogue_Box.Speech.Text = speech
+						end
+					end
+				end)
+
+				-- waits
+
+				task.wait(ToWait)
+
+				--task.wait()
+				MaxToWait = MaxToWait - ToWait
+				ToWait = 0
+				if Dialogue_Box and Dialogue_Box:FindFirstChild("Speech") then
+					if Dialogue_Box.Speech:FindFirstChild("Skip") then
+						Dialogue_Box.Speech.Skip.Interactable = true
+						Dialogue_Box.Speech.Skip.TextTransparency = 0
+
+					end
+
+				end
+
+
+
+				if MaxToWait > 0 then
+					task.spawn(function()
+						task.wait(MaxToWait)
+						Proceed = true
+					end)
+				end
+
+				Dialogue_Box.Speech.Skip.MouseButton1Click:Connect(function()
+					Proceed = true
+
+				end)
+
+				while not Proceed do task.wait() end
+				RunEndEvents()
+				Dialogue_Box:Destroy()
+
+			else
+				error("Unknown SubScene type: "..SubScene.Type .. " for SubScene "..i)
+			end
+		end
+	end
+
+
+
+	game.ReplicatedStorage.CameraEvents.SetCameraType:FireClient(Player, Enum.CameraType.Custom)
+
+end)
+

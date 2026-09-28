@@ -1,0 +1,20 @@
+game.ReplicatedStorage.CameraEvents.SetCameraType.OnClientEvent:Connect(function(type)
+	workspace.Camera.CameraType = type
+end)
+
+game.ReplicatedStorage.CameraEvents.SetCameraCFrame.OnClientEvent:Connect(function(cframe)
+	workspace.Camera.CFrame = cframe
+end)
+
+game.ReplicatedStorage.CameraEvents.TweenCameraCFrame.OnClientEvent:Connect(function(Duration, EasingStyle, EasingDirection, CFrametarget)
+	local goal = {
+		CFrame = CFrametarget
+	}
+	
+	local tweenservice = game:GetService("TweenService")
+	
+	local info = TweenInfo.new(Duration, Enum.EasingStyle[EasingStyle], Enum.EasingDirection[EasingDirection])
+	
+	local tween = tweenservice:Create(workspace.Camera, info, goal)
+	tween:Play()
+end)
